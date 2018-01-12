@@ -38,14 +38,25 @@ class Connect(QWidget):
 		socket = context.socket(zmq.PAIR)
 		addr = self.addrinput.text()
 		if ":" not in addr:
-			addr += ":5556"
-		socket.connect("tcp://%s" % addr)
-		socket.send(json.dumps({"type": "init"}).encode("utf-8"))
-		if json.loads(socket.recv().decode("utf-8"))["status"] == "ok":
-			log.debug("connected to '%s'" % addr)
-			self.setstatus(True)
+			port = 5556
 		else:
+			addr, port = tuple(addr.split(":"))
+
+		socket.connect("tcp://%s:%s" % (addr, port))
+		socket.send(json.dumps({"type": "init"}).encode("utf-8"))
+
+		poller = zmq.Poller()
+		poller.register(socket, zmq.POLLIN)
+		good = False
+		if socket in dict(poller.poll(1000)):
+			if json.loads(socket.recv().decode("utf-8"))["status"] == "ok":
+				log.debug("connected to '%s'" % addr)
+				self.setstatus(True)
+				good = True
+		
+		if not good:
 			log.error("cannot connect to '%s'" % addr)
+			QMessageBox.warning(self, "Error", "cannot connect to '%s'" % addr)
 
 	def disconnect(self):
 		log.debug("disconnected")
