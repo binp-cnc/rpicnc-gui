@@ -1,23 +1,19 @@
 import sys
-import zmq
-import time
-import json
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import Qt
 import logging as log
 
+import core
+
 log.basicConfig(level=log.DEBUG, format="[%(levelname)s] %(message)s")
 
 
-context = zmq.Context()
-
-
 class Connect(QWidget):
-	def __init__(self):
+	def __init__(self, cnxcb):
 		super().__init__()
 
-		self.socket = None
+		self.connection = None
 
 		self.label = QLabel("Address:")
 		self.addrinput = QLineEdit()
@@ -32,37 +28,29 @@ class Connect(QWidget):
 		self.layout.addWidget(self.button)
 		self.setLayout(self.layout)
 
-		self.setstatus(False)
+		self.cnxcb = cnxcb
 
 	def connect(self):
-		socket = context.socket(zmq.PAIR)
 		addr = self.addrinput.text()
 		if ":" not in addr:
 			port = 5556
 		else:
 			addr, port = tuple(addr.split(":"))
 
-		socket.connect("tcp://%s:%s" % (addr, port))
-		socket.send(json.dumps({"type": "init"}).encode("utf-8"))
-
-		poller = zmq.Poller()
-		poller.register(socket, zmq.POLLIN)
-		good = False
-		if socket in dict(poller.poll(1000)):
-			if json.loads(socket.recv().decode("utf-8"))["status"] == "ok":
-				log.debug("connected to '%s'" % addr)
-				self.setstatus(True)
-				good = True
-		
-		if not good:
-			log.error("cannot connect to '%s'" % addr)
-			QMessageBox.warning(self, "Error", "cannot connect to '%s'" % addr)
+		try:
+			self.connection = core.Connection(addr, port)
+			self.cnxcb(True)
+		except core.ConnectionError as ce:
+			QMessageBox.warning(self, "Error", str(ce))
 
 	def disconnect(self):
-		log.debug("disconnected")
-		self.setstatus(False)
+		self.connection.drop()
+		self.connection = None
 
-	def setstatus(self, connected):
+		log.debug("disconnected")
+		self.cnxcb(False)
+
+	def setcnx(self, connected):
 		try:
 			self.button.clicked.disconnect()
 		except TypeError:
@@ -76,19 +64,77 @@ class Connect(QWidget):
 			self.button.setText("Connect")
 			self.button.clicked.connect(self.connect)
 
+class Axis(QGroupBox):
+	def __init__(self, name):
+		super().__init__()
+
+		self.name = name
+		self.setTitle("Axis %s" % self.name.upper())
+
+		self.layout = QFormLayout()
+
+		label = QLabel("Size:")
+		edit = QLineEdit()
+		edit.setText("0")
+		edit.setReadOnly(True)
+		button = QPushButton("Measure")
+		layout = QHBoxLayout()
+		layout.addWidget(edit, 1)
+		layout.addWidget(button)
+		self.layout.addRow(label, layout)
+
+		label = QLabel("Position:")
+		edit = QLineEdit()
+		edit.setText("0")
+		edit.setReadOnly(True)
+		self.layout.addRow(label, edit)
+
+		label = QLabel("Move to:")
+		edit = QLineEdit()
+		edit.setText("0")
+		button = QPushButton("Move")
+		layout = QHBoxLayout()
+		layout.addWidget(edit, 1)
+		layout.addWidget(button)
+		self.layout.addRow(label, layout)
+		
+		self.setLayout(self.layout)
+
+
+class Toolbar(QWidget):
+	def __init__(self):
+		super().__init__()
+
+		self.xaxis = Axis("x")
+		self.yaxis = Axis("y")
+
+		self.layout = QVBoxLayout()
+		self.layout.addWidget(self.xaxis)
+		self.layout.addWidget(self.yaxis)
+		self.setLayout(self.layout)
+
+
 class Pannel(QWidget):
-	def __init__(self, scene, view):
+	def __init__(self, scene, view, cnxcb):
 		super().__init__()
 
 		self.view = view
 		self.scene = scene
 
-		self.connect = Connect()
+		self.connect = Connect(cnxcb)
+		self.toolbar = Toolbar()
 
 		self.layout = QVBoxLayout()
 		self.layout.setAlignment(Qt.AlignTop)
 		self.layout.addWidget(self.connect)
+		self.layout.addWidget(self.toolbar)
 		self.setLayout(self.layout)
+
+		self.cnxcb = cnxcb
+
+	def setcnx(self, status):
+		self.connect.setcnx(status)
+		self.toolbar.setEnabled(status)
 
 
 class Window(QMainWindow):
@@ -100,29 +146,26 @@ class Window(QMainWindow):
 		self.view = QGraphicsView()
 		self.view.setScene(self.scene)
 
-		self.pannel = Pannel(self.scene, self.view)
+		self.pannel = Pannel(self.scene, self.view, self.setcnx)
 
 		self.layout = QHBoxLayout()
-		self.layout.addWidget(self.view, 2)
+		self.layout.addWidget(self.view, 1)
 		self.layout.addWidget(self.pannel, 1)
 
 		self.layoutwrapper = QWidget()
 		self.layoutwrapper.setLayout(self.layout)
 		self.setCentralWidget(self.layoutwrapper)
 
-		self.resize(900, 600)
+		self.resize(800, 600)
 		self.setWindowTitle("RPi CNC")
 		self.show()
 
-	"""
-	def sync(self):
-		msg = b"client request"
-		socket.send(msg)
-		print("[send] '%s'" % msg)
+		self.setcnx(False)
 
-		msg = socket.recv()
-		print("[recv] '%s'" % msg)
-	"""
+	def setcnx(self, status):
+		self.view.setEnabled(status)
+		self.pannel.setcnx(status)
+
 
 app = QApplication(sys.argv)
 window = Window()
