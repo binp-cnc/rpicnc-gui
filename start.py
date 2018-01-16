@@ -39,16 +39,18 @@ class Connect(QWidget):
 
 		try:
 			self.connection = core.Connection(addr, port)
-			self.cnxcb(True)
+			self.cnxcb(self.connection)
 		except core.ConnectionError as ce:
 			QMessageBox.warning(self, "Error", str(ce))
+
+		self.connection.send({ "type": "scan", "axis": "x" })
 
 	def disconnect(self):
 		self.connection.drop()
 		self.connection = None
 
 		log.debug("disconnected")
-		self.cnxcb(False)
+		self.cnxcb(self.connection)
 
 	def setcnx(self, connected):
 		try:
@@ -132,7 +134,8 @@ class Pannel(QWidget):
 
 		self.cnxcb = cnxcb
 
-	def setcnx(self, status):
+	def setcnx(self, conn):
+		status = conn is not None
 		self.connect.setcnx(status)
 		self.toolbar.setEnabled(status)
 
@@ -160,11 +163,12 @@ class Window(QMainWindow):
 		self.setWindowTitle("RPi CNC")
 		self.show()
 
-		self.setcnx(False)
+		self.setcnx(None)
 
-	def setcnx(self, status):
+	def setcnx(self, conn):
+		status = conn is not None
 		self.view.setEnabled(status)
-		self.pannel.setcnx(status)
+		self.pannel.setcnx(conn)
 
 
 app = QApplication(sys.argv)

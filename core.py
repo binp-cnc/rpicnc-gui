@@ -20,30 +20,28 @@ class Connection:
 		self.socket = zmqcontext.socket(zmq.PAIR)
 
 		self.socket.connect("tcp://%s:%s" % (self.address, self.port))
-		self.socket.send(json.dumps({"type": "init"}).encode("utf-8"))
 
 		self.poller = zmq.Poller()
 		self.poller.register(self.socket, zmq.POLLIN)
 
-		good = False
-		if self.socket in dict(self.poller.poll(10000)):
-			if json.loads(self.socket.recv().decode("utf-8"))["status"] == "ok":
-				log.debug("connected to '%s'" % addr)
-				good = True
-		
-		if not good:
-			errstr = "cannot connect to '%s'" % addr
+		res = self.send({"type": "init"})
+		log.debug("response: %s" % str(res))
+		if res["status"] == "ok":
+			log.debug("connected to '%s'" % addr)
+		else:
+			errstr = "response status is '%s'" % res["status"]
 			log.error(errstr)
 			raise ConnectionError(errstr)
+			
 
 	def send(self, req):
 		self.socket.send(json.dumps(req).encode("utf-8"))
 
-		if self.socket in dict(self.poller.poll(10000)):
+		if self.socket in dict(self.poller.poll(4000)):
 			res = json.loads(self.socket.recv().decode("utf-8"))
 			return res
 		else:
-			errstr = "no responce from '%s'" % addr
+			errstr = "no responce from remote host"
 			log.error(errstr)
 			raise ConnectionError(errstr)
 
