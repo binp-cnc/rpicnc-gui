@@ -24,26 +24,24 @@ class Connection:
 		self.poller = zmq.Poller()
 		self.poller.register(self.socket, zmq.POLLIN)
 
-		res = self.send({"type": "init"})
-		log.debug("response: %s" % str(res))
-		if res["status"] == "ok":
-			log.debug("connected to '%s'" % addr)
-		else:
-			errstr = "response status is '%s'" % res["status"]
-			log.error(errstr)
-			raise ConnectionError(errstr)
-			
-
 	def send(self, req):
 		self.socket.send(json.dumps(req).encode("utf-8"))
+		log.debug("send: %s" % str(req))
 
-		if self.socket in dict(self.poller.poll(4000)):
-			res = json.loads(self.socket.recv().decode("utf-8"))
-			return res
+	def recv(self, timeout=0):
+		if timeout <= 0:
+			res = self.socket.recv()
 		else:
-			errstr = "no responce from remote host"
-			log.error(errstr)
-			raise ConnectionError(errstr)
+			if self.socket in dict(self.poller.poll(timeout)):
+				res = self.socket.recv()
+			else:
+				errstr = "no responce from remote host"
+				log.error(errstr)
+				raise ConnectionError(errstr)
+
+		res = json.loads(res.decode("utf-8"))
+		log.debug("recv: %s" % str(res))
+		return res
 
 	def drop(self):
 		self.poller.unregister(self.socket)

@@ -1,7 +1,7 @@
 import sys
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import *
 import logging as log
 
 import core
@@ -9,17 +9,35 @@ import core
 log.basicConfig(level=log.DEBUG, format="[%(levelname)s] %(message)s")
 
 
+class Handle:
+	def __init__(self):
+		self.calls = {}
+
+	def call(self, name, *args, **kwargs):
+		for callback in self.calls[name]:
+			callback(*args, **kwargs)
+
+	def bind(self, name, callback):
+		try:
+			self.calls[name].append(callback)
+		except KeyError:
+			self.calls[name] = [callback]
+
+
 class Connect(QWidget):
-	def __init__(self, cnxcb):
+	def __init__(self, handle):
 		super().__init__()
 
-		self.connection = None
+		handle.bind("setconn", self.setconn)
+
+		self.connected = False
 
 		self.label = QLabel("Address:")
 		self.addrinput = QLineEdit()
 		self.addrinput.setText("10.0.0.2:5556")
 
 		self.button = QPushButton()
+		self.button.clicked.connect(lambda: handle.call("connect", self.getaddr()))
 		#self.button.setToolTip("This is a <b>QPushButton</b> widget")
 
 		self.layout = QHBoxLayout()
@@ -28,47 +46,27 @@ class Connect(QWidget):
 		self.layout.addWidget(self.button)
 		self.setLayout(self.layout)
 
-		self.cnxcb = cnxcb
-
-	def connect(self):
-		addr = self.addrinput.text()
-		if ":" not in addr:
-			port = 5556
+	def getaddr(self):
+		if self.addrinput.enabled():
+			return self.addrinput.text()
 		else:
-			addr, port = tuple(addr.split(":"))
+			return None
 
-		try:
-			self.connection = core.Connection(addr, port)
-			self.cnxcb(self.connection)
-		except core.ConnectionError as ce:
-			QMessageBox.warning(self, "Error", str(ce))
+	def setconn(self, conn):
+		self.connected = conn is not None
 
-		self.connection.send({ "type": "scan", "axis": "x" })
-
-	def disconnect(self):
-		self.connection.drop()
-		self.connection = None
-
-		log.debug("disconnected")
-		self.cnxcb(self.connection)
-
-	def setcnx(self, connected):
-		try:
-			self.button.clicked.disconnect()
-		except TypeError:
-			pass
 		self.addrinput.setEnabled(not connected)
 
 		if connected:
 			self.button.setText("Disconnect")
-			self.button.clicked.connect(self.disconnect)
 		else:
 			self.button.setText("Connect")
-			self.button.clicked.connect(self.connect)
 
 class Axis(QGroupBox):
-	def __init__(self, name):
+	def __init__(self, name, handle):
 		super().__init__()
+
+		self.conn = None
 
 		self.name = name
 		self.setTitle("Axis %s" % self.name.upper())
@@ -80,6 +78,7 @@ class Axis(QGroupBox):
 		edit.setText("0")
 		edit.setReadOnly(True)
 		button = QPushButton("Measure")
+		button.clicked.connect(lambda: self.conn.send({"type": "scan", "axis": self.name}))
 		layout = QHBoxLayout()
 		layout.addWidget(edit, 1)
 		layout.addWidget(button)
@@ -102,29 +101,36 @@ class Axis(QGroupBox):
 		
 		self.setLayout(self.layout)
 
+		handle.bind("setconn", self.setconn)
+
+	def setconn(self, conn):
+		self.conn = conn
+
 
 class Toolbar(QWidget):
-	def __init__(self):
+	def __init__(self, handle):
 		super().__init__()
 
-		self.xaxis = Axis("x")
-		self.yaxis = Axis("y")
+		self.xaxis = Axis("x", handle=handle)
+		self.yaxis = Axis("y", handle=handle)
 
 		self.layout = QVBoxLayout()
 		self.layout.addWidget(self.xaxis)
 		self.layout.addWidget(self.yaxis)
 		self.setLayout(self.layout)
 
+		handle.bind("setconn", lambda conn: self.setEnabled(conn is not None))
+
 
 class Pannel(QWidget):
-	def __init__(self, scene, view, cnxcb):
+	def __init__(self, scene, view, handle):
 		super().__init__()
 
 		self.view = view
 		self.scene = scene
 
-		self.connect = Connect(cnxcb)
-		self.toolbar = Toolbar()
+		self.connect = Connect(handle=handle)
+		self.toolbar = Toolbar(handle=handle)
 
 		self.layout = QVBoxLayout()
 		self.layout.setAlignment(Qt.AlignTop)
@@ -132,24 +138,20 @@ class Pannel(QWidget):
 		self.layout.addWidget(self.toolbar)
 		self.setLayout(self.layout)
 
-		self.cnxcb = cnxcb
-
-	def setcnx(self, conn):
-		status = conn is not None
-		self.connect.setcnx(status)
-		self.toolbar.setEnabled(status)
-
 
 class Window(QMainWindow):
 	def __init__(self):
 		super().__init__()
 		QToolTip.setFont(QFont('SansSerif', 10))
 
+		self.handle = Handle()
+		self.conn = None
+
 		self.scene = QGraphicsScene()
 		self.view = QGraphicsView()
 		self.view.setScene(self.scene)
 
-		self.pannel = Pannel(self.scene, self.view, self.setcnx)
+		self.pannel = Pannel(self.scene, self.view, handle=self.handle)
 
 		self.layout = QHBoxLayout()
 		self.layout.addWidget(self.view, 1)
@@ -163,12 +165,53 @@ class Window(QMainWindow):
 		self.setWindowTitle("RPi CNC")
 		self.show()
 
-		self.setcnx(None)
+		self.timer = QTimer()
+		self.timer.timeout.connect(self.timeout)
 
-	def setcnx(self, conn):
+		self.handle.bind("connect", self.connect)
+
+		self.connect(None)
+
+	def connect(self, addr):
+		if addr is None:
+			self.handle.call("setconn", None)
+			return
+
+		if ":" not in addr:
+			port = 5556
+		else:
+			addr, port = tuple(addr.split(":"))
+
+		try:
+			self.conn = core.Connection(addr, port)
+		except core.ConnectionError as ce:
+			QMessageBox.warning(self, "Error", str(ce))
+		else:
+			self.handle.call("setconn", self.conn)
+
+		"""
+		if res["status"] == "ok":
+			log.debug("connected to '%s'" % addr)
+		else:
+			errstr = "response status is '%s'" % res["status"]
+			log.error(errstr)
+			raise ConnectionError(errstr)
+		"""
+
 		status = conn is not None
 		self.view.setEnabled(status)
-		self.pannel.setcnx(conn)
+
+		if status:
+			self.timer.start(1000)
+		else:
+			self.timer.stop()
+
+	def timeout(self):
+		print("timeout")
+
+	def quit(self):
+		if self.conn is not None:
+			pass
 
 
 app = QApplication(sys.argv)
