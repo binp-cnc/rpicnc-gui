@@ -25,22 +25,26 @@ class Connection:
 		self.poller.register(self.socket, zmq.POLLIN)
 
 	def send(self, req):
+		log.debug("sending: %s ..." % str(req))
 		self.socket.send(json.dumps(req).encode("utf-8"))
-		log.debug("send: %s" % str(req))
+		log.debug("... sent")
 
 	def recv(self, timeout=0):
+		
 		if timeout <= 0:
-			res = self.socket.recv()
+			try:
+				res = self.socket.recv(zmq.NOBLOCK)
+			except zmq.ZMQError:
+				res = None
 		else:
 			if self.socket in dict(self.poller.poll(timeout)):
 				res = self.socket.recv()
 			else:
-				errstr = "no responce from remote host"
-				log.error(errstr)
-				raise ConnectionError(errstr)
+				res = None
 
-		res = json.loads(res.decode("utf-8"))
-		log.debug("recv: %s" % str(res))
+		if res is not None:
+			res = json.loads(res.decode("utf-8"))
+			log.debug("received: %s" % str(res))
 		return res
 
 	def drop(self):
