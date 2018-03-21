@@ -122,6 +122,36 @@ class Motion(QGroupBox):
 		layout.addWidget(ylabel, 1)
 		self.layout.addRow(label, layout)
 
+		plabel = QLabel("Target relative position")
+		xpedit = QLineEdit()
+		xpedit.setText("0")
+		ypedit = QLineEdit()
+		ypedit.setText("0")
+		layout = QHBoxLayout()
+		layout.addWidget(xpedit, 1)
+		layout.addWidget(ypedit, 1)
+		self.layout.addRow(plabel, layout)
+
+		ilabel = QLabel("Initial speed")
+		xiedit = QLineEdit()
+		xiedit.setText("500")
+		yiedit = QLineEdit()
+		yiedit.setText("500")
+		layout = QHBoxLayout()
+		layout.addWidget(xiedit, 1)
+		layout.addWidget(yiedit, 1)
+		self.layout.addRow(ilabel, layout)
+
+		vlabel = QLabel("Target speed")
+		xvedit = QLineEdit()
+		xvedit.setText("2000")
+		yvedit = QLineEdit()
+		yvedit.setText("2000")
+		layout = QHBoxLayout()
+		layout.addWidget(xvedit, 1)
+		layout.addWidget(yvedit, 1)
+		self.layout.addRow(vlabel, layout)
+
 		alabel = QLabel("Acceleration")
 		xaedit = QLineEdit()
 		xaedit.setText("10000")
@@ -132,26 +162,6 @@ class Motion(QGroupBox):
 		layout.addWidget(yaedit, 1)
 		self.layout.addRow(alabel, layout)
 
-		vlabel = QLabel("Speed")
-		xvedit = QLineEdit()
-		xvedit.setText("2000")
-		yvedit = QLineEdit()
-		yvedit.setText("2000")
-		layout = QHBoxLayout()
-		layout.addWidget(xvedit, 1)
-		layout.addWidget(yvedit, 1)
-		self.layout.addRow(vlabel, layout)
-
-		plabel = QLabel("Relative position")
-		xpedit = QLineEdit()
-		xpedit.setText("0")
-		ypedit = QLineEdit()
-		ypedit.setText("0")
-		layout = QHBoxLayout()
-		layout.addWidget(xpedit, 1)
-		layout.addWidget(ypedit, 1)
-		self.layout.addRow(plabel, layout)
-
 		button = QPushButton("Move")
 		button.clicked.connect(self.move)
 		self.layout.addRow(button, None)
@@ -159,9 +169,10 @@ class Motion(QGroupBox):
 		self.setLayout(self.layout)
 
 		self.ins = {
-			"acc": (xaedit, yaedit),
-			"vel": (xvedit, yvedit),
-			"pos": (xpedit, ypedit),
+			"pos":  (xpedit, ypedit),
+			"ivel": (xiedit, yiedit),
+			"vel":  (xvedit, yvedit),
+			"acc":  (xaedit, yaedit),
 		}
 
 		handle.bind("setconn", self.setconn)
@@ -169,9 +180,10 @@ class Motion(QGroupBox):
 	def move(self):
 		self.conn.send({
 			"type": "move",
-			"pos": [int(self.ins["pos"][0].text()), int(self.ins["pos"][1].text())],
-			"vel": [int(self.ins["vel"][0].text()), int(self.ins["vel"][1].text())],
-			"acc": [int(self.ins["acc"][0].text()), int(self.ins["acc"][1].text())],
+			"pos":  [int(self.ins["pos"][0].text()),  int(self.ins["pos"][1].text())],
+			"ivel": [int(self.ins["ivel"][0].text()), int(self.ins["ivel"][1].text())],
+			"vel":  [int(self.ins["vel"][0].text()),  int(self.ins["vel"][1].text())],
+			"acc":  [int(self.ins["acc"][0].text()),  int(self.ins["acc"][1].text())],
 		})
 
 	def setconn(self, conn):
@@ -290,8 +302,6 @@ class Window(QMainWindow):
 			if msg["type"] == "scan":
 				if msg["status"] == "ok":
 					self.handle.call("setsize", msg["axis"], msg["size"])
-
-		log.debug("timeout")
 
 	def quit(self):
 		if self.conn is not None:
